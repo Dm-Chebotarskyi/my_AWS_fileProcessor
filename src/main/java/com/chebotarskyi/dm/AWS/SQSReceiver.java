@@ -1,9 +1,8 @@
 package com.chebotarskyi.dm.AWS;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map.Entry;
@@ -16,7 +15,6 @@ import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.GetObjectRequest;
-import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.sqs.AmazonSQS;
@@ -26,6 +24,8 @@ import com.amazonaws.services.sqs.model.Message;
 import com.amazonaws.services.sqs.model.MessageAttributeValue;
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 
+import javax.imageio.IIOException;
+import javax.imageio.ImageIO;
 import java.util.List;
 
 /**
@@ -49,27 +49,43 @@ public class SQSReceiver {
                     e);
         }
 
-        AmazonSQS sqs = new AmazonSQSClient(credentials);
-        Region usWest2 = Region.getRegion(Regions.US_WEST_2);
-        sqs.setRegion(usWest2);
+        final Thread mainThread = new Thread(new Runnable() {
+            public void run() {
+                while (!Thread.currentThread().isInterrupted()) {
+                    try {
 
-        AmazonS3 s3 = new AmazonS3Client(credentials);
-        s3.setRegion(usWest2);
+                        AmazonSQS sqs = new AmazonSQSClient(credentials);
+                        Region usWest2 = Region.getRegion(Regions.US_WEST_2);
+                        sqs.setRegion(usWest2);
 
-        List<String> filesList = getMessages(sqs);
+                        AmazonS3 s3 = new AmazonS3Client(credentials);
+                        s3.setRegion(usWest2);
 
-        for (String file : filesList) {
-            String[] files = file.split(",");
+                        List<String> filesList = getMessages(sqs);
 
-            for (int i=0; i<files.length; ++i) {
-                try {
-                    processFile(files[i], s3);
-                } catch (IOException e) {
-                    e.printStackTrace();
+                        for (String file : filesList) {
+                            String[] files = file.split(",");
+                            if (!file.equals("missing parameter: fileNames"))
+                            for (int i=0; i<files.length; ++i) {
+                                try {
+                                    processFile(files[i], s3);
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+
+                        }
+
+                        System.out.println("\nWaiting for messages.........\n");
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
                 }
             }
+        });
 
-        }
+        mainThread.start();
 
         System.out.println();
 
@@ -108,24 +124,60 @@ public class SQSReceiver {
         System.out.println("Content-Type: "  + object.getObjectMetadata().getContentType());
         //displayTextInputStream(object.getObjectContent());
 
+
+
         System.out.println("Deleting an object\n");
         s3.deleteObject(bucketName, key);
 
         System.out.println("Processing...");
 
         System.out.println("Uploading a new object to S3 from a file\n");
-        s3.putObject(new PutObjectRequest(bucketName, key + "_1", object.getObjectContent(), object.getObjectMetadata()));
+
+        InputStream changedStream = invertImage(object.getObjectContent());
+
+        s3.putObject(new PutObjectRequest(bucketName, key + "_", changedStream, object.getObjectMetadata()));
     }
 
-    private static void displayTextInputStream(InputStream input) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-        while (true) {
-            String line = reader.readLine();
-            if (line == null) break;
+//    private static void displayTextInputStream(InputStream input) throws IOException {
+//        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+//        while (true) {
+//            String line = reader.readLine();
+//            if (line == null) break;
+//
+//            System.out.println("    " + line);
+//        }
+//        System.out.println();
+//    }
 
-            System.out.println("    " + line);
+    public static InputStream invertImage(InputStream input) {
+        BufferedImage inputFile = null;
+
+        try {
+            inputFile = ImageIO.read(input);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-        System.out.println();
+
+        for (int x = 0; x < inputFile.getWidth(); x++) {
+            for (int y = 0; y < inputFile.getHeight(); y++) {
+                int rgba = inputFile.getRGB(x, y);
+                Color col = new Color(rgba, true);
+                col = new Color(255 - col.getRed(),
+                        255 - col.getGreen(),
+                        255 - col.getBlue());
+                inputFile.setRGB(x, y, col.getRGB());
+            }
+        }
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try {
+            ImageIO.write(inputFile, "png", baos);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        InputStream is = new ByteArrayInputStream(baos.toByteArray());
+
+        return is;
     }
 
 }
