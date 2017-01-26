@@ -5,6 +5,7 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.Map.Entry;
 
 import com.amazonaws.AmazonClientException;
@@ -15,6 +16,7 @@ import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.sqs.AmazonSQS;
@@ -122,7 +124,6 @@ public class SQSReceiver {
         System.out.println("Downloading an object");
         S3Object object = s3.getObject(new GetObjectRequest(bucketName, key));
         System.out.println("Content-Type: "  + object.getObjectMetadata().getContentType());
-        //displayTextInputStream(object.getObjectContent());
 
 
 
@@ -135,25 +136,25 @@ public class SQSReceiver {
 
         InputStream changedStream = invertImage(object.getObjectContent());
 
-        s3.putObject(new PutObjectRequest(bucketName, key + "_", changedStream, object.getObjectMetadata()));
-    }
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(changedStream.available());
+        metadata.setLastModified(new Date(System.currentTimeMillis()));
+        metadata.setHttpExpiresDate(object.getObjectMetadata().getExpirationTime());
 
-//    private static void displayTextInputStream(InputStream input) throws IOException {
-//        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-//        while (true) {
-//            String line = reader.readLine();
-//            if (line == null) break;
-//
-//            System.out.println("    " + line);
-//        }
-//        System.out.println();
-//    }
+        s3.putObject(new PutObjectRequest(bucketName, key + "_", changedStream, metadata));
+    }
 
     public static InputStream invertImage(InputStream input) {
         BufferedImage inputFile = null;
 
         try {
             inputFile = ImageIO.read(input);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            ImageIO.write(inputFile, "png", new File("tmp.png"));
         } catch (IOException e) {
             e.printStackTrace();
         }
