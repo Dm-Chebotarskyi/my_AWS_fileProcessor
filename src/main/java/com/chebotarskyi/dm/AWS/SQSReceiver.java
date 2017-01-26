@@ -139,8 +139,7 @@ public class SQSReceiver {
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(changedStream.available());
         metadata.setLastModified(new Date(System.currentTimeMillis()));
-        metadata.setHttpExpiresDate(object.getObjectMetadata().getExpirationTime());
-
+        
         s3.putObject(new PutObjectRequest(bucketName, key + "_", changedStream, metadata));
     }
 
